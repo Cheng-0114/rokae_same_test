@@ -3,141 +3,146 @@
 AR5L/AR5R 真机控制环境：Ubuntu 22.04 + ROS 2 Humble + Rokae ROS 2 官方栈，
 外加一套自定义的 `arm_teleop` 遥操作桥接包（终端输入 -> topic -> arm_controller）。
 
-- [Dockerfile.rokae](Dockerfile.rokae)：构建真机控制环境镜像，会在构建时自动下载官方
-  `rokae_ros2` 仓库和匹配版本的 xCore SDK。
+本仓库采用**宿主机原生安装**（不用 Docker/容器）。下面的步骤等价于把
+[Dockerfile.rokae](Dockerfile.rokae) 里做的事情（装 ROS 2 Humble、装依赖包、拉
+rokae_ros2 源码、下 xCore SDK、colcon build）原样搬到宿主机上执行一遍。
+`Dockerfile.rokae` 仍保留在仓库里作为容器方式的参考，不是必须用的。
+
 - [arm_teleop/](arm_teleop/)：自定义 ROS 2 包，包含两个节点：
   - `joint_input_node`：读终端输入的关节角度，发布到 `/arm_teleop/joint_command`
   - `trajectory_bridge_node`：订阅该话题，转发为 `trajectory_msgs/JointTrajectory`
     发给 `arm_controller`（`/arm_controller/joint_trajectory`）
   - `launch/bringup.launch.py`：一键拉起真机硬件接口 + `trajectory_bridge_node`
 
-## 一、新机器上的环境准备
+## 前提
 
-### 1. 安装 Docker Engine
+- 系统必须是 **Ubuntu 22.04（Jammy）**，ROS 2 Humble 只官方支持这个版本。
+  ```bash
+  lsb_release -a   # 确认 Codename: jammy
+  ```
+- 能访问 `packages.ros.org`（ROS 2 apt 源）、`github.com`/
+  `raw.githubusercontent.com`（拉 rokae_ros2 源码、下 xCore SDK、rosdep 更新索引）。
+
+## 一、安装 ROS 2 Humble Desktop
 
 ```bash
-curl -fsSL https://get.docker.com | sudo sh
+# 1. locale
+sudo apt update && sudo apt install -y locales
+sudo locale-gen en_US en_US.UTF-8
+sudo update-locale LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8
+export LANG=en_US.UTF-8
+
+# 2. 添加 ROS 2 apt 源
+sudo apt install -y software-properties-common curl
+sudo add-apt-repository universe -y
+sudo curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key \
+  -o /usr/share/keyrings/ros-archive-keyring.gpg
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/ros-archive-keyring.gpg] http://packages.ros.org/ros2/ubuntu $(. /etc/os-release && echo $UBUNTU_CODENAME) main" \
+  | sudo tee /etc/apt/sources.list.d/ros2.list > /dev/null
+
+# 3. 安装
+sudo apt update
+sudo apt install -y ros-humble-desktop
 ```
 
-验证安装（要求自带 buildx 插件，`docker build` 默认走 buildx）：
+## 二、安装其余依赖包（对应 Dockerfile.rokae 里的 apt 安装列表）
+
 ```bash
-docker --version
-docker buildx version
+sudo apt install -y \
+  build-essential ca-certificates curl git \
+  python3-colcon-common-extensions python3-rosdep \
+  libeigen3-dev liborocos-kdl-dev \
+  ros-humble-ros2-control ros-humble-ros2-controllers ros-humble-controller-manager \
+  ros-humble-joint-state-broadcaster ros-humble-joint-trajectory-controller \
+  ros-humble-forward-command-controller ros-humble-realtime-tools \
+  ros-humble-control-msgs ros-humble-trajectory-msgs \
+  ros-humble-moveit ros-humble-moveit-ros-planning-interface ros-humble-moveit-kinematics \
+  ros-humble-moveit-planners-ompl ros-humble-moveit-simple-controller-manager \
+  ros-humble-moveit-ros-visualization ros-humble-interactive-markers \
+  ros-humble-joint-state-publisher-gui ros-humble-robot-state-publisher ros-humble-rviz2
+
+# rosdep 只需要在这台机器上初始化一次
+sudo rosdep init   # 如果提示 "already exists"，忽略这条报错继续下一步
+rosdep update
 ```
 
-### 2. 把当前用户加入 docker 组（免 sudo 跑 docker）
+## 三、拉取 rokae_ros2 官方源码 + xCore SDK，编译工作空间
 
 ```bash
-sudo usermod -aG docker $USER
-newgrp docker          # 立即生效；或者重新登录/重启终端
-docker ps               # 不报权限错误就说明配置好了
-```
+export WS=$HOME/ar5_ws
+mkdir -p $WS/src
 
-### 3. 配置 Git + SSH，确保能访问 GitHub
+# 1. 官方栈源码（含 rokae_hardware、rokae_msgs、AR5L/AR5R MoveIt 配置等）
+git clone --depth 1 --branch main \
+  https://github.com/RokaeRobot/rokae_ros2.git $WS/src/rokae_ros2
 
-```bash
-# 检查是否已有身份配置
-git config --global user.name
-git config --global user.email
-# 没有的话设置一下
-git config --global user.name "你的名字"
-git config --global user.email "你的邮箱"
+# 2. xCore SDK：下载对应版本/架构的预编译库，放进 rokae_hardware 约定的目录
+XCORE_SDK_VERSION=0.7.1
+XCORE_SDK_ARCH=x86_64   # 如果是 ARM 主机改成 aarch64
+mkdir -p /tmp/xcore_sdk
+curl -fL --retry 3 \
+  "https://github.com/RokaeRobot/xCoreSDK-CPP/releases/download/v${XCORE_SDK_VERSION}/xCoreSDK-${XCORE_SDK_VERSION}-linux-${XCORE_SDK_ARCH}.tar.gz" \
+  -o /tmp/xcore_sdk.tar.gz
+tar -xzf /tmp/xcore_sdk.tar.gz -C /tmp/xcore_sdk
+SDK_LIB_DIR="$(find /tmp/xcore_sdk -type f -name libxCoreSDK.a -printf '%h\n' | head -n 1)"
+mkdir -p $WS/src/rokae_ros2/rokae_hardware/sdk/lib
+cp -a "${SDK_LIB_DIR}/." $WS/src/rokae_ros2/rokae_hardware/sdk/lib/
+rm -rf /tmp/xcore_sdk /tmp/xcore_sdk.tar.gz
 
-# 检查是否已有 SSH key
-ls ~/.ssh/id_ed25519.pub 2>/dev/null || ls ~/.ssh/id_rsa.pub 2>/dev/null
+# 校验 SDK 库文件确实放到位了
+test -f $WS/src/rokae_ros2/rokae_hardware/sdk/lib/libxCoreSDK.a && \
+test -f $WS/src/rokae_ros2/rokae_hardware/sdk/lib/libxMateModel.a && \
+echo "xCore SDK OK"
 
-# 没有则生成一个
-ssh-keygen -t ed25519 -C "你的邮箱"
-cat ~/.ssh/id_ed25519.pub
-# 把输出内容添加到 GitHub -> Settings -> SSH and GPG keys
+# 3. rosdep 装依赖（跳过 orocos_kdl/rviz——已经用 apt 装过；跳过
+#    warehouse_ros_mongo/gazebo_ros——真机场景用不到，且部分源里没有这两个包）
+cd $WS
+rosdep install --from-paths \
+  src/rokae_ros2/rokae_hardware \
+  src/rokae_ros2/rokae_msgs \
+  src/rokae_ros2/rokae_description \
+  src/rokae_ros2/rokae_example \
+  src/rokae_ros2/rokae_xMateAR5L_moveit_config \
+  --ignore-src -r -y \
+  --skip-keys "orocos_kdl rviz warehouse_ros_mongo gazebo_ros"
 
-# 验证
-ssh -T git@github.com
-# 看到 "Hi <你的用户名>! You've successfully authenticated..." 即可
-```
-
-### 4. 网络要求
-
-构建镜像的过程中需要能访问：
-- `hub.docker.com` / Docker Hub（拉取基础镜像 `osrf/ros:humble-desktop`）
-- `github.com` / `raw.githubusercontent.com`（`git clone` rokae_ros2、下载 xCore SDK
-  release、rosdep 更新索引）
-- Ubuntu/ROS 官方 apt 源
-
-如果在内网/无法直连 GitHub 的环境，需要提前配置好代理或镜像源，否则构建会在
-`git clone` 或 `curl` 那一步失败。
-
-## 二、拉取代码
-
-```bash
-git clone git@github.com:Cheng-0114/rokae_same_test.git
-cd rokae_same_test
-```
-
-## 三、构建镜像
-
-```bash
-docker build --pull -f Dockerfile.rokae -t rokae_down:latest .
-```
-构建时间较长（apt 安装、git clone、colcon build 编译，实测约 6 分钟），耐心等待。
-
-## 四、创建并进入容器
-
-```bash
-docker run -it \
-  --name self_develop_main_arm_testr \
-  --hostname self_develop_main_arm_testr \
-  -v "$(pwd):/root/self_develop_main_arm_test" \
-  --network host \
-  --privileged \
-  rokae_down:latest \
-  bash
-```
-- `-v "$(pwd):/root/self_develop_main_arm_test"`：把仓库目录挂载进容器，宿主机改代码
-  容器内实时可见。
-- `--network host`：真机场景需要和机械臂控制器在同一网络直连。
-- `--privileged`：需要访问串口/USB 等硬件资源时使用；纯软件调试可以去掉。
-
-之后再次使用：
-```bash
-docker start -ai self_develop_main_arm_testr     # 启动已停止的容器
-docker exec -it self_develop_main_arm_testr bash  # 容器运行中，开新终端进入
-```
-
-## 五、把 arm_teleop 接入 ROS 工作空间
-
-`rokae_ros2` 官方栈在镜像构建时已经编译好，放在容器内固定路径 `/root/ar5_ws`
-（这是 [Dockerfile.rokae](Dockerfile.rokae) 里 `ENV WS=/root/ar5_ws` 定的名字，不是
-ROS 2 规定路径）。自定义包 `arm_teleop` 挂载在 `/root/self_develop_main_arm_test`，
-不在这个工作空间里，需要软链接进去后再编译一次：
-
-```bash
-# 在容器内执行
-ln -sfn /root/self_develop_main_arm_test/arm_teleop /root/ar5_ws/src/arm_teleop
-
+# 4. 编译
 source /opt/ros/humble/setup.bash
-cd /root/ar5_ws
+colcon build --symlink-install --packages-up-to \
+  rokae_hardware rokae_example rokae_xMateAR5L_moveit_config
+
+# 5. 以后每个新终端自动加载这个工作空间
+echo "source /opt/ros/humble/setup.bash" >> ~/.bashrc
+echo "source $WS/install/setup.bash" >> ~/.bashrc
+```
+
+## 四、拉取本仓库，把 arm_teleop 接入工作空间
+
+```bash
+git clone git@github.com:Cheng-0114/rokae_same_test.git ~/rokae_same_test
+# 如果仓库是公开的，也可以用: git clone https://github.com/Cheng-0114/rokae_same_test.git ~/rokae_same_test
+
+ln -sfn ~/rokae_same_test/arm_teleop $WS/src/arm_teleop
+cd $WS
 colcon build --symlink-install --packages-select arm_teleop
+source install/setup.bash
 ```
 `--symlink-install` 是软链接安装，以后改 `arm_teleop` 下的 Python 代码不需要重新
 `colcon build`，改完保存即生效；改 `package.xml`/新增依赖/新增 launch 文件才需要重新
 `colcon build --packages-select arm_teleop`。
 
-新开的容器终端会自动 `source /root/ar5_ws/install/setup.bash`（写在镜像的
-`~/.bashrc` 里），能直接找到 `arm_teleop`、`rokae_hardware`、`rokae_msgs` 等包。
+## 五、运行
 
-## 六、运行
+打开新终端会自动 source 好整个工作空间（写进了 `~/.bashrc`）。
 
 **终端 1 —— 拉起真机硬件接口 + 桥接节点：**
 ```bash
-docker exec -it self_develop_main_arm_testr bash
 ros2 launch arm_teleop bringup.launch.py \
   robot_type:=AR5L robot_ip:=<机器人控制器IP> local_ip:=<本机IP>
 ```
 
 **终端 2 —— 终端输入控制：**
 ```bash
-docker exec -it self_develop_main_arm_testr bash
 ros2 run arm_teleop joint_input_node
 ```
 按提示输入 7 个关节角度(弧度) + 可选运动时长(秒)，确认后发送。
