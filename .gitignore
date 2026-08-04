@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+
+# colcon build 产物只在容器内的 /root/ar5_ws 下，不在这个仓库里，
+# 但以防万一有人在宿主机直接跑 colcon，仍然忽略：
+build/
+install/
+log/

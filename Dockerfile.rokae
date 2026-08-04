@@ -1,0 +1,92 @@
+# AR5L/AR5R 真机控制环境：Ubuntu 22.04 + ROS 2 Humble + Rokae ROS 2
+#
+# 构建时会自动下载官方 rokae_ros2 和匹配版本的 xCore SDK。
+
+FROM osrf/ros:humble-desktop
+
+ARG DEBIAN_FRONTEND=noninteractive
+ARG XCORE_SDK_VERSION=0.7.1
+ARG XCORE_SDK_ARCH=x86_64
+ENV ROS_DISTRO=humble
+ENV WS=/root/ar5_ws
+ENV ROKAE_ROS2_REF=main
+
+SHELL ["/bin/bash", "-c"]
+WORKDIR ${WS}
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    ca-certificates \
+    curl \
+    git \
+    python3-colcon-common-extensions \
+    python3-rosdep \
+    libeigen3-dev \
+    liborocos-kdl-dev \
+    ros-humble-ros2-control \
+    ros-humble-ros2-controllers \
+    ros-humble-controller-manager \
+    ros-humble-joint-state-broadcaster \
+    ros-humble-joint-trajectory-controller \
+    ros-humble-forward-command-controller \
+    ros-humble-realtime-tools \
+    ros-humble-control-msgs \
+    ros-humble-trajectory-msgs \
+    ros-humble-moveit \
+    ros-humble-moveit-ros-planning-interface \
+    ros-humble-moveit-kinematics \
+    ros-humble-moveit-planners-ompl \
+    ros-humble-moveit-simple-controller-manager \
+    ros-humble-moveit-ros-visualization \
+    ros-humble-interactive-markers \
+    ros-humble-joint-state-publisher-gui \
+    ros-humble-robot-state-publisher \
+    ros-humble-rviz2 \
+    && rm -rf /var/lib/apt/lists/*
+
+# 官方栈包含 rokae_hardware、rokae_msgs、AR5L/AR5R MoveIt 配置和示例。
+RUN git clone --depth 1 --branch ${ROKAE_ROS2_REF} \
+    https://github.com/RokaeRobot/rokae_ros2.git \
+    ${WS}/src/rokae_ros2
+
+# 下载官方 xCore SDK Release，并将其中的预编译库放入
+# rokae_hardware 约定的目录。SDK 头文件已经随 rokae_ros2 源码提供；
+# Release 压缩包主要提供 lib/Linux/<arch> 下的 .a/.so 文件。
+RUN mkdir -p /tmp/xcore_sdk \
+    && curl -fL --retry 3 \
+       "https://github.com/RokaeRobot/xCoreSDK-CPP/releases/download/v${XCORE_SDK_VERSION}/xCoreSDK-${XCORE_SDK_VERSION}-linux-${XCORE_SDK_ARCH}.tar.gz" \
+       -o /tmp/xcore_sdk.tar.gz \
+    && tar -xzf /tmp/xcore_sdk.tar.gz -C /tmp/xcore_sdk \
+    && SDK_LIB_DIR="$(find /tmp/xcore_sdk -type f -name libxCoreSDK.a -printf '%h\n' | head -n 1)" \
+    && test -n "${SDK_LIB_DIR}" \
+    && test -f "${SDK_LIB_DIR}/libxMateModel.a" \
+    && mkdir -p ${WS}/src/rokae_ros2/rokae_hardware/sdk/lib \
+    && cp -a "${SDK_LIB_DIR}/." \
+          ${WS}/src/rokae_ros2/rokae_hardware/sdk/lib/ \
+    && rm -rf /tmp/xcore_sdk /tmp/xcore_sdk.tar.gz
+
+RUN test -f ${WS}/src/rokae_ros2/rokae_hardware/sdk/lib/libxCoreSDK.a \
+    && test -f ${WS}/src/rokae_ros2/rokae_hardware/sdk/lib/libxMateModel.a
+
+# 只解析 AR5L 真机链路，避免把仓库中未使用的 CR/ER/SR、Gazebo 和
+# 其它 MoveIt 配置一起拉入。orocos_kdl/rviz 在本镜像中已经由 apt
+# 安装了对应的开发包/rviz2，且官方包的 rosdep 键名在 Humble 中不一致。
+RUN rosdep update \
+    && rosdep install --from-paths \
+       ${WS}/src/rokae_ros2/rokae_hardware \
+       ${WS}/src/rokae_ros2/rokae_msgs \
+       ${WS}/src/rokae_ros2/rokae_description \
+       ${WS}/src/rokae_ros2/rokae_example \
+       ${WS}/src/rokae_ros2/rokae_xMateAR5L_moveit_config \
+       --ignore-src -r -y \
+       --skip-keys "orocos_kdl rviz warehouse_ros_mongo gazebo_ros"
+
+RUN source /opt/ros/${ROS_DISTRO}/setup.bash \
+    && colcon build --symlink-install --packages-up-to \
+       rokae_hardware rokae_example rokae_xMateAR5L_moveit_config
+
+RUN echo "source /opt/ros/${ROS_DISTRO}/setup.bash" >> /root/.bashrc \
+    && echo "source ${WS}/install/setup.bash" >> /root/.bashrc \
+    && echo "cd ${WS}" >> /root/.bashrc
+
+CMD ["bash"]
