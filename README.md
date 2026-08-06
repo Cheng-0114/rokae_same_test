@@ -8,11 +8,19 @@ AR5L/AR5R 真机控制环境：Ubuntu 22.04 + ROS 2 Humble + Rokae ROS 2 官方�
 rokae_ros2 源码、下 xCore SDK、colcon build）原样搬到宿主机上执行一遍。
 `Dockerfile.rokae` 仍保留在仓库里作为容器方式的参考，不是必须用的。
 
-- [arm_teleop/](arm_teleop/)：自定义 ROS 2 包，包含两个节点：
-  - `joint_input_node`：读终端输入的关节角度，发布到 `/arm_teleop/joint_command`
-  - `trajectory_bridge_node`：订阅该话题，转发为 `trajectory_msgs/JointTrajectory`
-    发给 `arm_controller`（`/arm_controller/joint_trajectory`）
-  - `launch/bringup.launch.py`：一键拉起真机硬件接口 + `trajectory_bridge_node`
+- [arm_teleop/](arm_teleop/)：自定义 ROS 2 包，包含三个节点：
+  - **节点 A** `joint_input_node`：可视化遥操作面板（Tkinter GUI），7 个关节滑块
+    实时设定目标、7 个当前角度只读展示、频率/成功率/运行时间，连续流式发布到
+    `/arm_teleop/joint_command`
+  - **节点 B** `trajectory_bridge_node`：订阅该话题，按 `control_mode` 转发——
+    `trajectory` 模式转发为 `trajectory_msgs/JointTrajectory` 给 `arm_controller`；
+    `streaming` 模式直接转发位置给 `streaming_position_controller`。同时把真实
+    关节状态转发到 `/arm_teleop/joint_state`
+  - **节点 C** `stress_test_node`：交互式压力测试节点，命令行输入"目标角度增量
+    频率 时长"，分步爬升到目标点位并统计发送成功率
+  - `launch/bringup.launch.py`：一键拉起真机硬件接口 + 节点 B，`control_mode`
+    参数二选一决定走轨迹控制还是流式控制（详见下面"运行"一节）
+  - `scripts/cleanup.sh`：崩溃后手动清理残留进程用（详见"故障排查"一节）
 
 ## 前提
 
@@ -135,17 +143,88 @@ source install/setup.bash
 
 打开新终端会自动 source 好整个工作空间（写进了 `~/.bashrc`）。
 
-**终端 1 —— 拉起真机硬件接口 + 桥接节点：**
+`robot_ip` 是机械臂**控制器**的 IP，`local_ip` 是**本机网卡**的 IP，两个别填反
+（用 `ip addr` 看本机网卡实际 IP，不要凭印象填）。
+
+### 模式一：trajectory（默认，走 MoveIt/JointTrajectoryController）
+
+**终端 1 —— 拉起真机硬件接口 + 节点 B：**
 ```bash
 ros2 launch arm_teleop bringup.launch.py \
   robot_type:=AR5L robot_ip:=<机器人控制器IP> local_ip:=<本机IP>
 ```
+等看到 `机器人连接成功` 和实时打印的关节角度，再进行下一步。
 
-**终端 2 —— 终端输入控制：**
+**终端 2 —— 节点 C 压力测试（可选）：**
+```bash
+ros2 run arm_teleop stress_test_node --ros-args -p enable:=true
+```
+等提示"已获取到真实关节状态，可以开始测试"后，在 `stress_test>` 提示符输入
+`目标角度增量(rad) 频率(Hz) 总时长(s)`，例如 `0.02 50 1`，输入 `y` 确认才会真正
+发送；测完自动打印成功率，输入 `q` 退出。
+
+### 模式二：streaming（高频遥操作，走节点 A 的滑块面板）
+
+**终端 1 —— 同上，但加两个参数：**
+```bash
+ros2 launch arm_teleop bringup.launch.py \
+  robot_type:=AR5L robot_ip:=<机器人控制器IP> local_ip:=<本机IP> \
+  control_mode:=streaming enable_servoj:=true
+```
+
+**终端 2 —— 节点 A 可视化面板：**
 ```bash
 ros2 run arm_teleop joint_input_node
 ```
-按提示输入 7 个关节角度(弧度) + 可选运动时长(秒)，确认后发送。
+
+窗口里等滑块自动解锁（代表已经拿到机械臂当前真实位置），按下面顺序操作：
+
+1. **先点一次"同步目标到当前位置"**，把滑块和实际发送值对齐到机械臂当前
+   真实姿态，避免程序里默认的目标值跟机械臂实际位置对不上、一开始发送就
+   跳一下。这一步不能省，**每次点"开始"之前都建议先点一下**，尤其是如果
+   在这之前用节点 A/C 单独动过机械臂。
+2. 确认"发送频率"符合预期（这个只能在点"开始"前改，开始后锁定）。
+3. 想真正驱动机械臂就勾上"使能"，不勾就是只看数据不发送(dry-run)，可以先
+   这样跑一遍确认没问题。
+4. 点"开始"，再去拖滑块。
+5. 想停止就点"停止"（会保留当前发送值，不会跳回0）；关窗口前建议先点停止。
+
+`streaming` 模式下没有 `JointTrajectoryController` 自带的限速/限加速度保护，
+平滑和安全完全靠发送端自己控制——节点 A 内部有一个隐藏的滑块限速（每周期
+最多移动 `0.3rad/频率`），拖得再快机械臂也不会瞬间跳过去，但这也意味着别
+把这个限速去掉，除非你很清楚自己在做什么。
+
+`trajectory` 和 `streaming` 不能同时用、也不能运行中途切换，要切换必须重启
+`bringup.launch.py`（换 `control_mode` 参数）。
+
+## 六、故障排查
+
+**`Robot instantiation failed: 网络异常` / `network connection`**：
+1. 先 `ping <控制器IP>` 确认网络层通不通。
+2. 检查 `robot_ip`/`local_ip` 有没有填反（`robot_ip` 是控制器、`local_ip` 是
+   本机网卡，用 `ip addr` 核对）。
+3. 如果网络和 IP 都没问题，但连了一下又断，或者反复连不上：去示教器上看
+   有没有报警没清除、当前是不是"远程模式"、示教器本身有没有占着连接。
+4. 都排除了还不行，给控制柜断电重启一次，清掉控制器内部可能残留的连接
+   状态。
+
+**崩溃后残留进程导致没法重新启动**：
+`bringup.launch.py` 本身现在已经加了自动清理——`ros2_control_node` 崩溃时
+会带着 `robot_state_publisher`/节点B/spawner 一起自动退出，`ros2 launch`
+命令自己就会结束，不需要手动清理。
+
+但节点 A（GUI）和节点 C 是在单独终端用 `ros2 run` 起的，不属于这棵 launch
+树，如果这两个进程本身卡死或者终端被强制关掉，可能会有残留。这种情况用：
+```bash
+bash ~/rokae_same_test/arm_teleop/scripts/cleanup.sh
+```
+会先列出匹配到的相关残留进程，确认后再清理，不会误杀无关进程。
+
+**`Could not enable FIFO RT scheduling policy: Operation not permitted`**：
+这台机器没有给 ROS 进程开实时调度权限，`write()`/`read()` 周期可能偶尔抖动
+到几十毫秒甚至更久。用 `streaming` 模式 + `enable_servoj:=true` 时如果频繁
+断线，可以先试试 `enable_servoj:=false`（关掉 SDK 侧的伺服跟踪，纯粹靠发送
+端自己控制节奏）排除是不是这个导致的。
 
 ## 安全提醒
 

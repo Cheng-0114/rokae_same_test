@@ -19,12 +19,13 @@ setup(
     zip_safe=True,
     maintainer='ckt',
     maintainer_email='ketaocheng4@gmail.com',
-    description='终端关节指令输入节点 + 转发到 arm_controller 的桥接节点',
+    description='终端关节指令输入节点 + 转发到 arm_controller 的桥接节点 + 压力测试节点',
     license='Apache-2.0',
     entry_points={
         'console_scripts': [
             'joint_input_node = arm_teleop.joint_input_node:main',
             'trajectory_bridge_node = arm_teleop.trajectory_bridge_node:main',
+            'stress_test_node = arm_teleop.stress_test_node:main',
         ],
     },
 )

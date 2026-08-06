@@ -6,6 +6,17 @@
 用法:
   ros2 launch arm_teleop bringup.launch.py \
       robot_type:=AR5L robot_ip:=<控制器IP> local_ip:=<本机IP>
+
+高频遥操作(流式控制)模式:
+  ros2 launch arm_teleop bringup.launch.py \
+      robot_type:=AR5L robot_ip:=<控制器IP> local_ip:=<本机IP> \
+      control_mode:=streaming enable_servoj:=true
+  此时 arm_controller(JointTrajectoryController) 不会被启动，改为启动
+  streaming_position_controller(JointGroupPositionController)，节点B也会
+  切换成直接转发位置命令，不再经过样条轨迹重新规划；enable_servoj:=true 让
+  硬件接口额外调用 SDK 的 setServoJoint 做带 lookahead 的平滑跟踪。
+  注意：streaming 模式没有 JointTrajectoryController 自带的限速/限加速度
+  保护，发送端(节点B/C)必须自己控制好步长和频率。
 """
 import os
 
@@ -21,6 +32,9 @@ def generate_launch_description():
     robot_type = LaunchConfiguration('robot_type')
     robot_ip = LaunchConfiguration('robot_ip')
     local_ip = LaunchConfiguration('local_ip')
+    control_mode = LaunchConfiguration('control_mode')
+    enable_servoj = LaunchConfiguration('enable_servoj')
+    servo_joint_period_s = LaunchConfiguration('servo_joint_period_s')
 
     real_moveit_launch = os.path.join(
         get_package_share_directory('rokae_hardware'),
@@ -33,6 +47,9 @@ def generate_launch_description():
             'robot_type': robot_type,
             'robot_ip': robot_ip,
             'local_ip': local_ip,
+            'control_mode': control_mode,
+            'enable_servoj': enable_servoj,
+            'servo_joint_period_s': servo_joint_period_s,
         }.items(),
     )
 
@@ -41,6 +58,7 @@ def generate_launch_description():
         executable='trajectory_bridge_node',
         name='trajectory_bridge_node',
         output='screen',
+        parameters=[{'control_mode': control_mode}],
     )
 
     return LaunchDescription([
@@ -49,6 +67,19 @@ def generate_launch_description():
         # 真机请务必显式传入实际的控制器 IP 和本机 IP。
         DeclareLaunchArgument('robot_ip', default_value='10.0.2.163', description='机器人控制器 IP'),
         DeclareLaunchArgument('local_ip', default_value='10.0.2.162', description='本机(与控制器通信网卡) IP'),
+        DeclareLaunchArgument(
+            'control_mode', default_value='trajectory',
+            description="'trajectory'(默认，走MoveIt/JointTrajectoryController) 或 "
+                         "'streaming'(高频遥操作，走 streaming_position_controller，节点B直发位置命令)",
+        ),
+        DeclareLaunchArgument(
+            'enable_servoj', default_value='false',
+            description='true 时硬件接口调用 SDK setServoJoint 做带 lookahead 的平滑跟踪，建议 streaming 模式下开启',
+        ),
+        DeclareLaunchArgument(
+            'servo_joint_period_s', default_value='0.004',
+            description='setServoJoint 控制周期(秒)，应与 controller_manager update_rate 一致(250Hz -> 0.004)',
+        ),
         arm_bringup,
         trajectory_bridge_node,
     ])
