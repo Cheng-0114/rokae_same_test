@@ -19,6 +19,9 @@ bringup.launch.py 的 control_mode:=streaming enable_servoj:=true 使用。
   真实位置后才解锁，避免从一个瞎猜的默认位置突然开始流式发送。
 - 频率只能在点击"开始"之前修改，开始后锁定，跟发送节奏绑定的参数不允许
   运行中途改，避免运行时改变来源不明的抖动。
+- "全部左移/全部右移"按钮按住联动移动所有关节的滑块目标，移动速率跟单个
+  滑块的限速用同一个 MAX_SLEW_RATE_RAD_S，不会比手动拖单个滑块更快；松开
+  即停，不需要点"开始"就能操作(只改滑块目标，真正发送依然要"开始"+"使能")。
 
 消息格式沿用节点 B 现有协议(Float64MultiArray: 7 个位置 + 1 个占位时长)，
 时长字段本身在 streaming 模式下会被节点 B 忽略，这里固定填 1/频率，
@@ -49,6 +52,7 @@ JOINT_LIMITS = [
 MAX_SLEW_RATE_RAD_S = 0.3  # 实际发送值朝滑块目标靠近的最大速率，独立于人手拖动速度
 DEFAULT_FREQ_HZ = 20.0
 UI_REFRESH_MS = 100
+JOG_TICK_MS = 50  # 全部关节联动移动(按住按钮)的刷新间隔
 
 
 class JointGuiNode(Node):
@@ -103,6 +107,7 @@ class TeleopGui:
         self._commanded = None  # 实际发送值(限速后)，None 表示还没同步到真实位置
         self._tick_count = 0
         self._success_count = 0
+        self._jog_direction = 0  # -1=全部左移, 0=不动, 1=全部右移
 
         self._enable_var = tk.BooleanVar(value=False)
         self._freq_var = tk.StringVar(value=str(DEFAULT_FREQ_HZ))
@@ -134,8 +139,20 @@ class TeleopGui:
         self._sync_btn = ttk.Button(top, text='同步目标到当前位置', command=self._on_sync, state='disabled')
         self._sync_btn.grid(row=0, column=5, padx=(16, 4))
 
+        jog = ttk.Frame(root, padding=(8, 0, 8, 8))
+        jog.grid(row=1, column=0, sticky='ew')
+        ttk.Label(jog, text='全部关节联动(按住按钮持续移动，松开停止):').pack(side='left', padx=(0, 8))
+        self._jog_left_btn = ttk.Button(jog, text='◀ 全部左移', state='disabled')
+        self._jog_left_btn.pack(side='left', padx=4)
+        self._jog_right_btn = ttk.Button(jog, text='全部右移 ▶', state='disabled')
+        self._jog_right_btn.pack(side='left', padx=4)
+        self._jog_left_btn.bind('<ButtonPress-1>', lambda _e: self._on_jog_start(-1))
+        self._jog_left_btn.bind('<ButtonRelease-1>', lambda _e: self._on_jog_stop())
+        self._jog_right_btn.bind('<ButtonPress-1>', lambda _e: self._on_jog_start(1))
+        self._jog_right_btn.bind('<ButtonRelease-1>', lambda _e: self._on_jog_stop())
+
         table = ttk.Frame(root, padding=8)
-        table.grid(row=1, column=0, sticky='ew')
+        table.grid(row=2, column=0, sticky='ew')
         ttk.Label(table, text='关节', width=8).grid(row=0, column=0)
         ttk.Label(table, text='当前角度(rad)', width=14).grid(row=0, column=1)
         ttk.Label(table, text='目标角度(rad)  —  拖动滑块设定').grid(row=0, column=2, sticky='w')
@@ -160,14 +177,14 @@ class TeleopGui:
             self._sliders.append(slider)
 
         bottom = ttk.Frame(root, padding=8)
-        bottom.grid(row=2, column=0, sticky='ew')
+        bottom.grid(row=3, column=0, sticky='ew')
         ttk.Label(bottom, text='信号传输成功率:').grid(row=0, column=0)
         ttk.Label(bottom, textvariable=self._success_rate_var).grid(row=0, column=1, padx=(4, 24))
         ttk.Label(bottom, text='程序运行时间:').grid(row=0, column=2)
         ttk.Label(bottom, textvariable=self._runtime_var).grid(row=0, column=3, padx=4)
 
         status = ttk.Frame(root, padding=(8, 0, 8, 8))
-        status.grid(row=3, column=0, sticky='ew')
+        status.grid(row=4, column=0, sticky='ew')
         ttk.Label(status, textvariable=self._status_var, foreground='#a06000').pack(anchor='w')
 
     def _on_sync(self):
@@ -178,6 +195,32 @@ class TeleopGui:
             self._target_vars[i].set(current[i])
         self._commanded = list(current)
         self._status_var.set('已同步目标到当前真实位置')
+
+    def _on_jog_start(self, direction: int):
+        if self._commanded is None:
+            return
+        if self._jog_direction != 0:
+            return  # 已经在联动移动中，忽略重复触发
+        self._jog_direction = direction
+        self._status_var.set('全部关节联动移动中(松开按钮停止)...')
+        self._jog_tick()
+
+    def _on_jog_stop(self):
+        if self._jog_direction == 0:
+            return
+        self._jog_direction = 0
+        self._status_var.set('联动移动已停止')
+
+    def _jog_tick(self):
+        if self._jog_direction == 0:
+            return
+        step = self._jog_direction * MAX_SLEW_RATE_RAD_S * (JOG_TICK_MS / 1000.0)
+        for i in range(JOINT_COUNT):
+            lower, upper = JOINT_LIMITS[i]
+            new_target = self._target_vars[i].get() + step
+            new_target = max(lower, min(upper, new_target))
+            self._target_vars[i].set(new_target)
+        self._root.after(JOG_TICK_MS, self._jog_tick)
 
     def _on_start(self):
         try:
@@ -251,6 +294,8 @@ class TeleopGui:
                     s.config(state='normal')
                 self._start_btn.config(state='normal')
                 self._sync_btn.config(state='normal')
+                self._jog_left_btn.config(state='normal')
+                self._jog_right_btn.config(state='normal')
                 self._status_var.set('已获取真实关节状态，可以点击"开始"')
 
         if self._tick_count > 0:

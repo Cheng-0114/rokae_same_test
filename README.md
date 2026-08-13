@@ -11,7 +11,8 @@ rokae_ros2 源码、下 xCore SDK、colcon build）原样搬到宿主机上执�
 - [arm_teleop/](arm_teleop/)：自定义 ROS 2 包，包含三个节点：
   - **节点 A** `joint_input_node`：可视化遥操作面板（Tkinter GUI），7 个关节滑块
     实时设定目标、7 个当前角度只读展示、频率/成功率/运行时间，连续流式发布到
-    `/arm_teleop/joint_command`
+    `/arm_teleop/joint_command`；另有"全部左移/全部右移"按钮，按住可以让全部
+    关节联动移动（同一个限速）
   - **节点 B** `trajectory_bridge_node`：订阅该话题，按 `control_mode` 转发——
     `trajectory` 模式转发为 `trajectory_msgs/JointTrajectory` 给 `arm_controller`；
     `streaming` 模式直接转发位置给 `streaming_position_controller`。同时把真实
