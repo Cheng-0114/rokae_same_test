@@ -1,0 +1,21 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>arm_teleop_stream</name>
+  <version>0.0.1</version>
+  <description>streaming 模式桥接节点：绕过 ros2_control，直接调用 rokae SDK 的 setServoJoint/sendCommand
+    做连续流式关节位置控制，替代节点B在 streaming 模式下本该经由的
+    streaming_position_controller(目前 rokae_ros2 官方 launch/配置里没有实现这个控制器)。</description>
+  <maintainer email="ketaocheng4@gmail.com">ckt</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <depend>rclcpp</depend>
+  <depend>std_msgs</depend>
+  <depend>sensor_msgs</depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

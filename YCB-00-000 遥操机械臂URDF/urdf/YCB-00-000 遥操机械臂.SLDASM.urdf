@@ -1,0 +1,453 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- This URDF was automatically created by SolidWorks to URDF Exporter! Originally created by Stephen Brawner (brawner@gmail.com) 
+     Commit Version: 1.6.0-4-g7f85cfe  Build Version: 1.6.7995.38578
+     For more information, please see http://wiki.ros.org/sw_urdf_exporter -->
+<robot
+  name="YCB-00-000 遥操机械臂.SLDASM">
+  <link
+    name="base_link">
+    <inertial>
+      <origin
+        xyz="-0.0027667 -0.025288 0.0013997"
+        rpy="0 0 0" />
+      <mass
+        value="0.43326" />
+      <inertia
+        ixx="0.000839"
+        ixy="2.1799E-06"
+        ixz="-1.3314E-06"
+        iyy="0.00057053"
+        iyz="-1.0784E-07"
+        izz="0.0014009" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://YCB-00-000 遥操机械臂.SLDASM/meshes/base_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.86667 0.86667 0.8902 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://YCB-00-000 遥操机械臂.SLDASM/meshes/base_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <link
+    name="Link1">
+    <inertial>
+      <origin
+        xyz="-0.00045413 0.013842 0.023667"
+        rpy="0 0 0" />
+      <mass
+        value="0.05035" />
+      <inertia
+        ixx="4.3276E-05"
+        ixy="7.2799E-08"
+        ixz="1.2282E-07"
+        iyy="4.0127E-05"
+        iyz="-1.2209E-05"
+        izz="2.6293E-05" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://YCB-00-000 遥操机械臂.SLDASM/meshes/Link1.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.75294 0.75294 0.75294 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://YCB-00-000 遥操机械臂.SLDASM/meshes/Link1.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="joint1"
+    type="revolute">
+    <origin
+      xyz="0 0 0.0573"
+      rpy="0 0 0" />
+    <parent
+      link="base_link" />
+    <child
+      link="Link1" />
+    <axis
+      xyz="0 0 1" />
+    <limit
+      lower="-3.1067"
+      upper="3.1067"
+      effort="27"
+      velocity="5.45" />
+  </joint>
+  <link
+    name="Link2">
+    <inertial>
+      <origin
+        xyz="-0.0043044 0.0039924 0.10958"
+        rpy="0 0 0" />
+      <mass
+        value="0.0012774" />
+      <inertia
+        ixx="6.2025E-09"
+        ixy="7.3438E-10"
+        ixz="-6.4801E-10"
+        iyy="1.3214E-08"
+        iyz="8.1584E-11"
+        izz="1.6019E-08" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://YCB-00-000 遥操机械臂.SLDASM/meshes/Link2.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.75294 0.75294 0.75294 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://YCB-00-000 遥操机械臂.SLDASM/meshes/Link2.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="joint2"
+    type="revolute">
+    <origin
+      xyz="0 -0.0283 0.0474"
+      rpy="0 0 0" />
+    <parent
+      link="Link1" />
+    <child
+      link="Link2" />
+    <axis
+      xyz="0 1 0" />
+    <limit
+      lower="-2.0944"
+      upper="2.0944"
+      effort="27"
+      velocity="5.45" />
+  </joint>
+  <link
+    name="Link3">
+    <inertial>
+      <origin
+        xyz="-0.00093488 0.022179 0.013803"
+        rpy="0 0 0" />
+      <mass
+        value="0.001543" />
+      <inertia
+        ixx="8.8793E-09"
+        ixy="1.0822E-09"
+        ixz="8.2671E-10"
+        iyy="1.5361E-08"
+        iyz="-7.2908E-10"
+        izz="1.8602E-08" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://YCB-00-000 遥操机械臂.SLDASM/meshes/Link3.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.75294 0.75294 0.75294 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://YCB-00-000 遥操机械臂.SLDASM/meshes/Link3.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="joint3"
+    type="revolute">
+    <origin
+      xyz="0 0.02831 0.1098"
+      rpy="0 0 0" />
+    <parent
+      link="Link2" />
+    <child
+      link="Link3" />
+    <axis
+      xyz="0 0 1" />
+    <limit
+      lower="-3.1067"
+      upper="3.1067"
+      effort="27"
+      velocity="5.45" />
+  </joint>
+  <link
+    name="Link4">
+    <inertial>
+      <origin
+        xyz="-0.0019957 -0.00034239 0.083825"
+        rpy="0 0 0" />
+      <mass
+        value="0.0012774" />
+      <inertia
+        ixx="6.2024E-09"
+        ixy="7.3438E-10"
+        ixz="6.4801E-10"
+        iyy="1.3214E-08"
+        iyz="-8.1592E-11"
+        izz="1.6019E-08" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://YCB-00-000 遥操机械臂.SLDASM/meshes/Link4.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.75294 0.75294 0.75294 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://YCB-00-000 遥操机械臂.SLDASM/meshes/Link4.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="joint4"
+    type="revolute">
+    <origin
+      xyz="0.0063 0.02465 0.0894"
+      rpy="0 0 0" />
+    <parent
+      link="Link3" />
+    <child
+      link="Link4" />
+    <axis
+      xyz="0 1 0" />
+    <limit
+      lower="-1.0472"
+      upper="2.5307"
+      effort="7"
+      velocity="12.566" />
+  </joint>
+  <link
+    name="Link5">
+    <inertial>
+      <origin
+        xyz="-0.0013576 -0.02442 0.0040478"
+        rpy="0 0 0" />
+      <mass
+        value="0.0013667" />
+      <inertia
+        ixx="8.0808E-09"
+        ixy="1.0822E-09"
+        ixz="-8.2672E-10"
+        iyy="1.3938E-08"
+        iyz="7.2909E-10"
+        izz="1.7804E-08" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://YCB-00-000 遥操机械臂.SLDASM/meshes/Link5.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.75294 0.75294 0.75294 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://YCB-00-000 遥操机械臂.SLDASM/meshes/Link5.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="joint5"
+    type="revolute">
+    <origin
+      xyz="-0.0063 -0.02466 0.084"
+      rpy="0 0 0" />
+    <parent
+      link="Link4" />
+    <child
+      link="Link5" />
+    <axis
+      xyz="0 0 1" />
+    <limit
+      lower="-3.1067"
+      upper="3.1067"
+      effort="7"
+      velocity="12.566" />
+  </joint>
+  <link
+    name="Link6">
+    <inertial>
+      <origin
+        xyz="-0.017063 -0.029504 0.014495"
+        rpy="0 0 0" />
+      <mass
+        value="0.00017636" />
+      <inertia
+        ixx="1.4235E-09"
+        ixy="3.9244E-15"
+        ixz="7.2284E-18"
+        iyy="7.9842E-10"
+        iyz="1.0209E-18"
+        izz="7.9843E-10" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://YCB-00-000 遥操机械臂.SLDASM/meshes/Link6.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.75294 0.75294 0.75294 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://YCB-00-000 遥操机械臂.SLDASM/meshes/Link6.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="joint6"
+    type="revolute">
+    <origin
+      xyz="0 0.044 0.0828"
+      rpy="0 0 0" />
+    <parent
+      link="Link5" />
+    <child
+      link="Link6" />
+    <axis
+      xyz="0 1 0" />
+    <limit
+      lower="-1.0472"
+      upper="1.0472"
+      effort="3"
+      velocity="15.708" />
+  </joint>
+  <link
+    name="Link7">
+    <inertial>
+      <origin
+        xyz="-0.0070312 -0.008213 0.041933"
+        rpy="0 0 0" />
+      <mass
+        value="8.4358E-11" />
+      <inertia
+        ixx="1.7193E-13"
+        ixy="8.1493E-15"
+        ixz="-1.2797E-14"
+        iyy="1.6358E-13"
+        iyz="2.594E-14"
+        izz="4.0102E-14" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://YCB-00-000 遥操机械臂.SLDASM/meshes/Link7.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.75294 0.75294 0.75294 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://YCB-00-000 遥操机械臂.SLDASM/meshes/Link7.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="joint7"
+    type="revolute">
+    <origin
+      xyz="-0.0169 -0.044 0"
+      rpy="0 0 0" />
+    <parent
+      link="Link6" />
+    <child
+      link="Link7" />
+    <axis
+      xyz="1 0 0" />
+    <limit
+      lower="-1.5708"
+      upper="1.5708"
+      effort="3"
+      velocity="15.708" />
+  </joint>
+</robot>

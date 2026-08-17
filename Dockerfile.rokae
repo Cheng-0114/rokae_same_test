@@ -23,6 +23,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3-rosdep \
     libeigen3-dev \
     liborocos-kdl-dev \
+    libusb-1.0-0-dev \
+    iputils-ping \
+    usbutils \
+    fonts-wqy-zenhei \
     ros-humble-ros2-control \
     ros-humble-ros2-controllers \
     ros-humble-controller-manager \

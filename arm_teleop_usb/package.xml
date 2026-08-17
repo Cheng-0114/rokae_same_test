@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>arm_teleop_usb</name>
+  <version>0.0.1</version>
+  <description>节点D：主臂 USB 电机反馈桥接节点，读取 DM 电机 USB 反馈帧并发布为 sensor_msgs/JointState</description>
+  <maintainer email="ketaocheng4@gmail.com">ckt</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <depend>rclcpp</depend>
+  <depend>sensor_msgs</depend>
+  <depend>std_srvs</depend>
+  <depend>libusb-1.0-0-dev</depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

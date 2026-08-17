@@ -26,6 +26,19 @@ bringup.launch.py 的 control_mode:=streaming enable_servoj:=true 使用。
 消息格式沿用节点 B 现有协议(Float64MultiArray: 7 个位置 + 1 个占位时长)，
 时长字段本身在 streaming 模式下会被节点 B 忽略，这里固定填 1/频率，
 纯粹是为了满足节点 B 消息格式校验(要求最后一个数 >0)，界面上不暴露这个值。
+
+跟节点D(主臂USB反馈)联动，按"收没收到这个关节的数据"逐关节自动切换，
+不是写死哪几个关节：
+- 订阅节点D发布的 master_joint_state_topic(sensor_msgs/JointState)，按
+  msg.name 里出现的关节名分别记录对应位置。
+- 界面每次刷新时，7 个关节逐个判断：这个关节名如果在节点D最新一条消息里
+  出现过，就把它的目标滑块设成主臂对应的实际角度(自动跟随，人手拖不动，
+  因为下一次刷新又会被写回主臂的值)；没出现过，就还是原来手动滑块那一套，
+  不受影响。
+- 节点D现在只发 1 个电机(固件 DM_MOTOR_NUM=1)，所以现在只有 joint1 会自动
+  跟随；固件那边电机数量往上加，节点A这边不用改代码就自动跟着扩展。
+- 只改"目标"，不跳过限速：真正发给机械臂的值仍然按 MAX_SLEW_RATE_RAD_S 逐步
+  逼近这个目标，主臂读数的抖动/跳变不会原样直接打到真机上。
 """
 import threading
 import time
@@ -62,19 +75,26 @@ class JointGuiNode(Node):
         super().__init__('joint_input_node')
         self.declare_parameter('command_topic', '/arm_teleop/joint_command')
         self.declare_parameter('joint_state_topic', '/arm_teleop/joint_state')
+        self.declare_parameter('master_joint_state_topic', '/arm_teleop/master_joint_state')
 
         command_topic = self.get_parameter('command_topic').get_parameter_value().string_value
         joint_state_topic = self.get_parameter('joint_state_topic').get_parameter_value().string_value
+        master_joint_state_topic = self.get_parameter(
+            'master_joint_state_topic').get_parameter_value().string_value
 
         self._pub = self.create_publisher(Float64MultiArray, command_topic, 10)
         self._sub = self.create_subscription(
             JointState, joint_state_topic, self._on_joint_state, 10)
+        self._master_sub = self.create_subscription(
+            JointState, master_joint_state_topic, self._on_master_joint_state, 10)
 
         self._lock = threading.Lock()
         self._current_positions = None  # 最新真实关节角度，由订阅回调持续更新
+        self._master_joint_positions = {}  # {关节名: 节点D发来的主臂实际角度}，只含收到过的关节
 
         self.get_logger().info(f'发布指令到: {command_topic}(streaming 模式)')
         self.get_logger().info(f'订阅真实关节状态: {joint_state_topic}')
+        self.get_logger().info(f'订阅主臂关节状态(节点D): {master_joint_state_topic}')
 
     def _on_joint_state(self, msg: JointState):
         if len(msg.name) < JOINT_COUNT or len(msg.position) < JOINT_COUNT:
@@ -89,6 +109,18 @@ class JointGuiNode(Node):
     def get_current_positions(self):
         with self._lock:
             return list(self._current_positions) if self._current_positions is not None else None
+
+    def _on_master_joint_state(self, msg: JointState):
+        by_name = dict(zip(msg.name, msg.position))
+        updates = {j: by_name[j] for j in JOINT_NAMES if j in by_name}
+        if not updates:
+            return
+        with self._lock:
+            self._master_joint_positions.update(updates)
+
+    def get_master_joint_positions(self):
+        with self._lock:
+            return dict(self._master_joint_positions)
 
     def publish_positions(self, positions, freq_hz):
         msg = Float64MultiArray()
@@ -297,6 +329,11 @@ class TeleopGui:
                 self._jog_left_btn.config(state='normal')
                 self._jog_right_btn.config(state='normal')
                 self._status_var.set('已获取真实关节状态，可以点击"开始"')
+
+        master_positions = self._node.get_master_joint_positions()
+        for i, jname in enumerate(JOINT_NAMES):
+            if jname in master_positions:
+                self._target_vars[i].set(master_positions[jname])
 
         if self._tick_count > 0:
             rate = self._success_count / self._tick_count * 100.0

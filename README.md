@@ -22,6 +22,16 @@ rokae_ros2 源码、下 xCore SDK、colcon build）原样搬到宿主机上执�
   - `launch/bringup.launch.py`：一键拉起真机硬件接口 + 节点 B，`control_mode`
     参数二选一决定走轨迹控制还是流式控制（详见下面"运行"一节）
   - `scripts/cleanup.sh`：崩溃后手动清理残留进程用（详见"故障排查"一节）
+- [arm_teleop_usb/](arm_teleop_usb/)：独立的 `ament_cmake` C++ 包，只有一个节点：
+  - **节点 D** `usb_motor_bridge_node`：主臂 USB 电机反馈桥接节点。通过 libusb
+    读取主臂控制板（GD32，USB CDC，VID=0x28e9 PID=0x018a）发来的 DM 电机反馈帧
+    （`CMD_DM_FB`），在帧回调里整帧打包成一条 `sensor_msgs/JointState` 发布到
+    `/arm_teleop/master_joint_state`（name=`joint{id}`，position/velocity/effort
+    对应 位置/速度/力矩）。启动后自动握手(`CMD_CONNECT`)+ 维持心跳，但**不会
+    自动使能电机**——电机使能是会让主臂真的通电出力的动作，需要显式调用
+    `~/enable_motors` 服务（`std_srvs/SetBool`）才会生效。协议/USB收发代码
+    复制自 [remote_control-8ee3e55/pc_usb](arm_teleop/remote_control-8ee3e55/pc_usb/)
+    （主臂固件配套的 PC 端调试程序），逻辑未做修改。
 
 ## 前提
 
@@ -61,6 +71,7 @@ sudo apt install -y \
   build-essential ca-certificates curl git \
   python3-colcon-common-extensions python3-rosdep \
   libeigen3-dev liborocos-kdl-dev \
+  libusb-1.0-0-dev \
   ros-humble-ros2-control ros-humble-ros2-controllers ros-humble-controller-manager \
   ros-humble-joint-state-broadcaster ros-humble-joint-trajectory-controller \
   ros-humble-forward-command-controller ros-humble-realtime-tools \
@@ -74,6 +85,7 @@ sudo apt install -y \
 sudo rosdep init   # 如果提示 "already exists"，忽略这条报错继续下一步
 rosdep update
 ```
+`libusb-1.0-0-dev` 是节点D(`arm_teleop_usb`)读主臂 USB 反馈需要的库，其余跟原来一样。
 
 ## 三、拉取 rokae_ros2 官方源码 + xCore SDK，编译工作空间
 
@@ -125,27 +137,77 @@ echo "source /opt/ros/humble/setup.bash" >> ~/.bashrc
 echo "source $WS/install/setup.bash" >> ~/.bashrc
 ```
 
-## 四、拉取本仓库，把 arm_teleop 接入工作空间
+## 四、拉取本仓库，把 arm_teleop / arm_teleop_usb 接入工作空间
 
 ```bash
 git clone git@github.com:Cheng-0114/rokae_same_test.git ~/rokae_same_test
 # 如果仓库是公开的，也可以用: git clone https://github.com/Cheng-0114/rokae_same_test.git ~/rokae_same_test
 
 ln -sfn ~/rokae_same_test/arm_teleop $WS/src/arm_teleop
+ln -sfn ~/rokae_same_test/arm_teleop_usb $WS/src/arm_teleop_usb
 cd $WS
-colcon build --symlink-install --packages-select arm_teleop
+colcon build --symlink-install --packages-select arm_teleop arm_teleop_usb
 source install/setup.bash
 ```
 `--symlink-install` 是软链接安装，以后改 `arm_teleop` 下的 Python 代码不需要重新
 `colcon build`，改完保存即生效；改 `package.xml`/新增依赖/新增 launch 文件才需要重新
-`colcon build --packages-select arm_teleop`。
+`colcon build --packages-select arm_teleop`。`arm_teleop_usb` 是 C++ 包，改了
+`arm_teleop_usb` 下的 `.cpp`/`.h` 代码都需要重新
+`colcon build --packages-select arm_teleop_usb`。
 
-## 五、运行
-
-打开新终端会自动 source 好整个工作空间（写进了 `~/.bashrc`）。
+## 五、运行前网络准备（把有线网卡配到机械臂同一网段）
 
 `robot_ip` 是机械臂**控制器**的 IP，`local_ip` 是**本机网卡**的 IP，两个别填反
-（用 `ip addr` 看本机网卡实际 IP，不要凭印象填）。
+（用 `ip addr` 看本机网卡实际 IP，不要凭印象填）。这一步只需要在**第一次**接
+这台机械臂、或者换了台电脑时做一次；配成静态连接后插拔网线/重启都不用重
+新配。
+
+1. 确认有线网口名字和物理链路状态：
+   ```bash
+   nmcli device status          # 找有线网口对应的 DEVICE 名，例如 enx6c1ff706895d
+   cat /sys/class/net/<网口名>/carrier   # 1 = 有物理连接，0 = 网线没插好/对端没通
+   ```
+2. 找机械臂控制器实际的 IP（找不到就问带这台机械臂的人，或者去示教器网络设置
+   里看），确认跟本机网口不在同一网段（比如控制器是 `192.168.9.160`，本机网口
+   默认拿到的是别的网段），就需要给本机网口追加一个跟控制器同网段的静态 IP：
+   ```bash
+   # <连接名> 用 nmcli connection show 里对应这个网口的 NAME（一般叫 "Wired connection 1"）
+   # <本机静态IP> 跟控制器 IP 同网段、不能跟网段内其它设备重复，例如 192.168.9.50/24
+   sudo nmcli connection modify "<连接名>" +ipv4.addresses <本机静态IP>/24
+   sudo nmcli connection up "<连接名>"
+   ```
+   这是给现有连接**追加**一个静态地址，不会动这个网口原来的地址（比如原来
+   DHCP/静态拿到的办公网 IP），两个地址可以共存。
+3. 验证：
+   ```bash
+   ip addr show <网口名>        # 确认新加的静态IP在列表里
+   ping -c 4 <控制器IP>
+   ```
+   如果一直 `目标主机不可达`（ARP 失败）且物理链路 carrier=1，说明本机这一侧
+   配置没问题，问题在链路对端——去查控制器有没有上电、网线是不是真的接到了
+   控制器网口（而不是接到了别的交换机/路由器）。
+
+## 六、USB 设备权限准备（节点D，主臂USB反馈，仅用到节点D时需要）
+
+`usb_motor_bridge_node` 用 libusb 直接操作 USB 设备，默认普通用户没有权限，
+不加这一步就得 `sudo ros2 run ...` 才能打开设备——但 ROS 节点长期以 root 身份
+跑并不合适（容易跟其它以普通用户跑的节点产生权限不一致的问题），建议加一条
+udev 规则让普通用户也能直接访问：
+
+```bash
+sudo tee /etc/udev/rules.d/99-arm-master-usb.rules > /dev/null <<'EOF'
+SUBSYSTEM=="usb", ATTR{idVendor}=="28e9", ATTR{idProduct}=="018a", MODE="0666", GROUP="plugdev"
+EOF
+sudo udevadm control --reload-rules
+sudo udevadm trigger
+```
+加完规则后**把主臂 USB 线拔了重插一次**（udev 规则只在设备重新枚举时生效），
+然后 `ros2 run arm_teleop_usb usb_motor_bridge_node` 不用 `sudo` 也能正常打开
+设备。
+
+## 七、运行
+
+打开新终端会自动 source 好整个工作空间（写进了 `~/.bashrc`）。
 
 ### 模式一：trajectory（默认，走 MoveIt/JointTrajectoryController）
 
@@ -198,7 +260,26 @@ ros2 run arm_teleop joint_input_node
 `trajectory` 和 `streaming` 不能同时用、也不能运行中途切换，要切换必须重启
 `bringup.launch.py`（换 `control_mode` 参数）。
 
-## 六、故障排查
+### 节点D：主臂 USB 电机反馈（独立于上面两种模式，跟着主臂硬件走）
+
+跟 AR5L/AR5R 那条真机控制链路完全独立，不需要先跑 `bringup.launch.py`。插好
+主臂 USB 线后：
+
+```bash
+ros2 run arm_teleop_usb usb_motor_bridge_node
+```
+
+日志打印"USB 设备已连接，发送 CMD_CONNECT 建立协议连接"说明已经握手成功，
+`ros2 topic echo /arm_teleop/master_joint_state` 应该能看到反馈——但反馈帧要
+真正从固件发出来，还需要电机被使能，节点D**不会自动使能**（使能属于会让
+主臂真的通电出力的动作），手动触发：
+
+```bash
+ros2 service call /usb_motor_bridge_node/enable_motors std_srvs/srv/SetBool "{data: true}"
+```
+`data: false` 则失能。失能/程序退出前建议先失能一次，避免主臂一直带力。
+
+## 八、故障排查
 
 **`Robot instantiation failed: 网络异常` / `network connection`**：
 1. 先 `ping <控制器IP>` 确认网络层通不通。
@@ -227,6 +308,74 @@ bash ~/rokae_same_test/arm_teleop/scripts/cleanup.sh
 断线，可以先试试 `enable_servoj:=false`（关掉 SDK 侧的伺服跟踪，纯粹靠发送
 端自己控制节奏）排除是不是这个导致的。
 
+**节点D启动失败 `USB 热插拔监听启动失败` / 一直打不开设备**：
+1. 先确认设备确实插上了：`lsusb | grep 28e9:018a`。
+2. 大概率是权限问题：按"六、USB 设备权限准备"加 udev 规则并重插一次 USB 线；
+   临时验证可以先 `sudo ros2 run arm_teleop_usb usb_motor_bridge_node` 看是否
+   变正常，能则确认是权限问题。
+3. `/arm_teleop/master_joint_state` 一直没有消息：先看节点D日志有没有打印
+   "USB 设备已连接"，没有说明协议层握手都没成功（检查设备/线缆）；打印了但
+   还是没消息，大概率是忘了调 `enable_motors` 服务使能电机（固件只有电机使能
+   后才会产生反馈帧，见节点D运行说明）。
+
+**`apt-get update`/`apt-get install` 卡住不动，长时间没反应**：
+大概率是 DNS 把包源解析成了 IPv6 地址，但这台机器/网络实际没有可用的 IPv6
+路由，apt 卡在连接超时上。用 `getent hosts archive.ubuntu.com` 看解析结果是
+不是全是 IPv6（形如 `2620:...`），是的话强制 apt 走 IPv4：
+```bash
+apt-get update -o Acquire::ForceIPv4=true
+apt-get install -y -o Acquire::ForceIPv4=true <包名>
+```
+卡住的旧 apt 进程记得先 kill 掉再重试，否则会报 `dpkg lock` 被占用。
+
 ## 安全提醒
 
 真机测试前务必确认：运动幅度小、速度慢、现场有人可以随时按急停。
+
+节点D的 `enable_motors` 服务调用会让**主臂**（不是 AR5 follower）真的通电出力，
+调用前确认主臂周围没有人手/异物卡在关节间隙里；不用的时候记得调用一次
+`enable_motors {data: false}` 失能，不要让主臂一直带力空转。
+
+## 附：用 Docker 容器跑（可选，`Dockerfile.rokae` 对应的环境）
+
+前面一到八都是宿主机原生安装的流程；如果是用 `Dockerfile.rokae` build 出来的
+镜像（或已有一个基于它的容器，比如 `rokae_down:latest`）跑，有两点跟宿主机
+原生方式不一样：
+
+**1. 节点A(GUI) 要用 X11 把窗口显示到宿主机屏幕，X11 参数只能在创建容器时带上**
+（`docker exec` 之后没法后补 `-v`/新的 `-e`），完整的创建命令：
+```bash
+xhost +local:root   # 宿主机执行一次，放行容器内root连宿主机X server
+                     # 宿主机图形会话重启后要重新执行这条
+
+docker run -dit \
+  --name <容器名> \
+  --network host \
+  --privileged \
+  -v <本仓库绝对路径>:/root/<容器内挂载目录名> \
+  -v /tmp/.X11-unix:/tmp/.X11-unix:rw \
+  -e DISPLAY=$DISPLAY \
+  rokae_down:latest bash
+```
+`--network host` 让容器和宿主机共用同一份网络栈，理论上 DDS 话题发现应该跨
+host/container 边界互通，但实测发现**不总是可靠**（具体原因没查透彻，怀疑
+跟这台机器这轮反复改动有线网卡IP、多网卡多路由有关系）。稳妥做法：**节点
+A/B/C/D 放到同一个容器里跑**，不要指望节点A单独在宿主机跑、节点B/D在容器
+里跑还能实时互相发现——本仓库就是这么踩过一次坑才改成全放同一容器的。
+
+**2. `Dockerfile.rokae` 现在的 apt 列表里已经带上了这几个包**，都是给容器内
+跑 GUI/节点D/排查用的，跟真机控制链路本身无关：
+- `libusb-1.0-0-dev` —— 节点D(`arm_teleop_usb`)编译依赖
+- `iputils-ping` / `usbutils` —— 排查用（`ping`/`lsusb`）
+- `fonts-wqy-zenhei` —— 节点A界面是中文标签，没有中文字体窗口里的字会
+  完全不显示（不是乱码，是真的空白），装了这个字体包就正常了
+
+如果现在跑的容器是在这几个包加进 `Dockerfile.rokae` 之前就建好的，重新
+build 镜像太重，直接在容器里手动补装就行（apt 卡住看上面故障排查那条
+IPv6 说明）：
+```bash
+docker exec -it <容器名> bash
+apt-get update -o Acquire::ForceIPv4=true
+apt-get install -y -o Acquire::ForceIPv4=true \
+  libusb-1.0-0-dev iputils-ping usbutils fonts-wqy-zenhei
+```
